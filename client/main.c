@@ -9,21 +9,38 @@
 #include <time.h>
 #include <unistd.h>
 #include<pthread.h> //for threading , link with lpthread
-
+#define TCP_SENDER_PORT 8888
+#define MESSAGE_SIZE 256
+#define POOlING_TIME 7
+#define UDP_SUPPORT 0
+#define TCP_SUPPORT 1
 
 
 //the thread function
 void *timer_handler(void *);
 int net_sendmsg(char* msg);
 int sock;
+int listener_sock;
 pthread_mutex_t mutex;
 pthread_t sniffer_thread;
-char message[1000] , server_reply[2000];
-char input_msg[1000];
+pthread_t sniffer_listener_thread;
+char message[MESSAGE_SIZE] , server_reply[MESSAGE_SIZE];
+char input_msg[MESSAGE_SIZE];
 int sending_flag=0;
+char UID[64];
+char UPWD[64];
+char mServer_ADDR[16]="127.0.0.1";
+int mServer_port=TCP_SENDER_PORT;
 
+//client [IP][port][UID][PWD]
 int main(int argc , char *argv[])
 {
+    puts("\n");
+    puts(argv[1]);
+    puts(argv[2]);
+    strcpy(UID, argv[3]);
+    strcpy(UPWD, argv[4]);
+#if UDP_SUPPORT
 /////////////////////UDP client
     
     int clientSocket, portNum, nBytes;
@@ -37,7 +54,7 @@ int main(int argc , char *argv[])
     /*Configure settings in address struct*/
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(7891);
-    serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serverAddr.sin_addr.s_addr = inet_addr(mServer_ADDR);
     memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
     
     /*Initialize size variable to be used later on*/
@@ -59,11 +76,12 @@ int main(int argc , char *argv[])
         printf("Received from server: %s\n",buffer);
         
     }
-    
+#endif
     
 ////////////////////TCP client
-#if 0
+#if TCP_SUPPORT
     struct sockaddr_in server;
+    struct sockaddr_in listener_server;
     
     
     //Create socket
@@ -74,9 +92,9 @@ int main(int argc , char *argv[])
     }
     puts("Socket created");
     
-    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+    server.sin_addr.s_addr = inet_addr(mServer_ADDR);
     server.sin_family = AF_INET;
-    server.sin_port = htons( 8888 );
+    server.sin_port = htons( mServer_port );
     
     //Connect to remote server
     if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0)
@@ -86,15 +104,41 @@ int main(int argc , char *argv[])
     }
     
     puts("Connected\n");
+    
+    struct timeval timeout;
+    timeout.tv_sec = 2;
+    timeout.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    
+    if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
+    {
+        puts("recv failed");
+        return 1;
+    }
+    
+    puts(server_reply);
+    //sending login information
+    
+    sprintf(message, "L%s,%s",UID,UPWD);
+    
+    net_sendmsg(message);
+    
+    //Receive a reply from the server
+    if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
+    {
+        puts("recv failed");
+        return 1;
+    }
+    puts(server_reply);
+    
     pthread_mutex_init(&mutex, NULL);
 
-#if 1
     if( pthread_create( &sniffer_thread , NULL ,  timer_handler , (void*) sock) < 0)
     {
         perror("could not create thread");
         return 1;
     }
-#endif
+    
     //keep communicating with server
     while(1)
     {
@@ -111,36 +155,58 @@ int main(int argc , char *argv[])
 void *timer_handler(void * sock)
 {
     int sleep_counter=0;
+    int ACK_counter=0;
+    time_t timeA;
+    time_t timeB;
+    struct tm newyear;
+    double seconds;
+    time(&timeA);  /* get current time; same as: now = time(NULL)  */
+    int sending_ACK=0;
+    
+    
     while(1)
     {
-        //
-        //scanf("%s" , message);
-        sleep_counter++;
-        sleep(1);
-        //Delay(7000);
-        if(sleep_counter==7)
+        if(!sending_ACK)
         {
-            printf("sending time every 7secs\n");
+            time(&timeB);
+            seconds = difftime(timeB,timeA);
+            if(seconds>=POOlING_TIME)
+            {
+                puts("sending time every 7secs\n");
+                sending_ACK=1;
+            }
+        }
+        
+        if(sending_ACK)
+        {
+            //formating the time string
             time_t rawtime;
             struct tm * timeinfo;
             
             time (&rawtime);
             timeinfo = localtime (&rawtime);
-            strftime (message,2000,"A%x %X",timeinfo);
+            strftime (message,MESSAGE_SIZE,"A%x %X",timeinfo);
             
             net_sendmsg(message);
-            
+            puts("waiting..\n");
             //Receive a reply from the server
-            if( recv(sock , server_reply , 2000 , 0) < 0)
+            if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
             {
+                //no ACK back timeout
+                //counting the retry time
                 puts("recv failed");
-                break;
+                ACK_counter++;
+                if(ACK_counter==5)
+                    break;
+            }else
+            {
+                puts("Server reply :");
+                puts(server_reply);
+                memset(server_reply, 0, MESSAGE_SIZE);
+                time(&timeA);
+                ACK_counter=0;
+                sending_ACK=0;
             }
-            
-            puts("Server reply :");
-            puts(server_reply);
-            memset(server_reply, 0, 2000);
-            sleep_counter=0;
         }else
         {
             if(sending_flag)
@@ -151,7 +217,7 @@ void *timer_handler(void * sock)
                 net_sendmsg(input_msg);
                 
                 //Receive a reply from the server
-                if( recv(sock , server_reply , 2000 , 0) < 0)
+                if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
                 {
                     puts("recv failed");
                     break;
@@ -159,7 +225,13 @@ void *timer_handler(void * sock)
                 
                 puts("Server reply :");
                 puts(server_reply);
-                memset(server_reply, 0, 2000);
+                memset(server_reply, 0, MESSAGE_SIZE);
+            }
+            //if not anyother reason for sending out message.
+            //recieving message every sec
+            if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
+            {
+                //timeout
             }
         }
         
