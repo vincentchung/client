@@ -38,6 +38,8 @@ int main(int argc , char *argv[])
     puts("\n");
     puts(argv[1]);
     puts(argv[2]);
+    strcpy(mServer_ADDR, argv[1]);
+    mServer_port=atoi(argv[2]);
     strcpy(UID, argv[3]);
     strcpy(UPWD, argv[4]);
 #if UDP_SUPPORT
@@ -106,7 +108,7 @@ int main(int argc , char *argv[])
     puts("Connected\n");
     
     struct timeval timeout;
-    timeout.tv_sec = 2;
+    timeout.tv_sec = 1;//timeout for 1 sec
     timeout.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
@@ -189,15 +191,19 @@ void *timer_handler(void * sock)
             
             net_sendmsg(message);
             puts("waiting..\n");
+            int rec=recv(sock , server_reply , MESSAGE_SIZE , 0);
+            if(rec < 0)
+                rec=recv(sock , server_reply , MESSAGE_SIZE , 0);
             //Receive a reply from the server
-            if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
+            if(rec < 0)
             {
-                //no ACK back timeout
-                //counting the retry time
-                puts("recv failed");
-                ACK_counter++;
-                if(ACK_counter==5)
-                    break;
+              //no ACK back timeout
+              //counting the retry time
+              puts("recv failed");
+              ACK_counter++;
+              if(ACK_counter==5)
+                 break;
+                
             }else
             {
                 puts("Server reply :");
