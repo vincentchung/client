@@ -19,10 +19,15 @@
 //the thread function
 void *timer_handler(void *);
 int net_sendmsg(char* msg);
+void *UDPMulticast_handler(void * sock);
+
+
+//TCP
 int sock;
 int listener_sock;
 pthread_mutex_t mutex;
 pthread_t sniffer_thread;
+//UDP listener thread!!
 pthread_t sniffer_listener_thread;
 char message[MESSAGE_SIZE] , server_reply[MESSAGE_SIZE];
 char input_msg[MESSAGE_SIZE];
@@ -31,10 +36,20 @@ char UID[64];
 char UPWD[64];
 char mServer_ADDR[16]="127.0.0.1";
 int mServer_port=TCP_SENDER_PORT;
+int mServer_UDP_port=7891;
+int connect_type=0;//0:TCP,1:UDP
+
+//UDP
+struct sockaddr_in server;
+
+//create one thread for UDP muticast case lisener!!!
+//using one command to be muticast message to other client
 
 //client [IP][port][UID][PWD]
 int main(int argc , char *argv[])
 {
+    
+#if 0    
     puts("\n");
     puts(argv[1]);
     puts(argv[2]);
@@ -42,50 +57,74 @@ int main(int argc , char *argv[])
     mServer_port=atoi(argv[2]);
     strcpy(UID, argv[3]);
     strcpy(UPWD, argv[4]);
+    connect_type=atoi(argv[5]);
+#endif
+    
+/////create thread for listening multicast message
+    if( pthread_create( &sniffer_listener_thread , NULL ,  UDPMulticast_handler , NULL) < 0)
+    {
+        perror("could not create thread");
+        return 1;
+    }
+    
 #if UDP_SUPPORT
 /////////////////////UDP client
     
-    int clientSocket, portNum, nBytes;
+    int portNum, nBytes;
     char buffer[1024];
-    struct sockaddr_in serverAddr;
     socklen_t addr_size;
+    struct ip_mreq mreq;
+    u_int yes=1;
     
     /*Create UDP socket*/
-    clientSocket = socket(PF_INET, SOCK_DGRAM, 0);
+    sock = socket(PF_INET, SOCK_DGRAM, 0);
     
     /*Configure settings in address struct*/
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(7891);
-    serverAddr.sin_addr.s_addr = inet_addr(mServer_ADDR);
-    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+    server.sin_family = AF_INET;
+    server.sin_port = htons(mServer_UDP_port);
+    server.sin_addr.s_addr = inet_addr(mServer_ADDR);
+    memset(server.sin_zero, '\0', sizeof server.sin_zero);
     
     /*Initialize size variable to be used later on*/
-    addr_size = sizeof serverAddr;
+    addr_size = sizeof server;
     
-    while(1){
-        printf("Type a sentence to send to server:\n");
-        fgets(buffer,1024,stdin);
-        printf("You typed: %s",buffer);
-        
-        nBytes = strlen(buffer) + 1;
-        
-        /*Send message to server*/
-        sendto(clientSocket,buffer,nBytes,0,(struct sockaddr *)&serverAddr,addr_size);
-        
-        /*Receive message from server*/
-        nBytes = recvfrom(clientSocket,buffer,1024,0,NULL, NULL);
-        
-        printf("Received from server: %s\n",buffer);
-        
+    /**** MODIFICATION TO ORIGINAL */
+    /* allow multiple sockets to use the same PORT number */
+    if (setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes)) < 0) {
+        perror("Reusing ADDR failed");
+        exit(1);
+    }
+    /*** END OF MODIFICATION TO ORIGINAL */
+    
+    /* bind to receive address */
+    if (bind(sock,(struct sockaddr *) &server,sizeof(server)) < 0) {
+        perror("bind");
+        exit(1);
+    }
+    
+    /* use setsockopt() to request that the kernel join a multicast group */
+    mreq.imr_multiaddr.s_addr=inet_addr(mServer_ADDR);
+    mreq.imr_interface.s_addr=htonl(INADDR_ANY);
+    if (setsockopt(sock,IPPROTO_IP,IP_ADD_MEMBERSHIP,&mreq,sizeof(mreq)) < 0) {
+        perror("setsockopt");
+        exit(1);
+    }
+    
+    /* now just enter a read-print loop */
+    while (1) {
+        int addrlen=sizeof(server);
+        int nbytes;
+        if ((nbytes=recvfrom(sock,message,strlen(message),0,
+                             (struct sockaddr *) &server,&addrlen)) < 0) {
+            perror("recvfrom");
+            exit(1);
+        }
+        puts(message);
     }
 #endif
     
 ////////////////////TCP client
 #if TCP_SUPPORT
-    struct sockaddr_in server;
-    struct sockaddr_in listener_server;
-    
-    
     //Create socket
     sock = socket(AF_INET , SOCK_STREAM , 0);
     if (sock == -1)
@@ -247,10 +286,79 @@ void *timer_handler(void * sock)
 
 int net_sendmsg(char* msg)
 {
-    if( send(sock , msg , strlen(msg) , 0) < 0)
+    if(connect_type)//UDP
     {
-        puts("Send failed");
-        return 1;
+        sendto(sock,msg,strlen(msg),0,(struct sockaddr *)&server,sizeof(server));
+    }else//TCP
+    {
+        if( send(sock , msg , strlen(msg) , 0) < 0)
+        {
+            puts("Send failed");
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+//UDP Multicast-listener
+#define HELLO_PORT 12345
+#define HELLO_GROUP "225.0.0.37"
+#define MSGBUFSIZE 256
+void *UDPMulticast_handler(void * sock)
+{
+    struct sockaddr_in addr;
+    int fd, nbytes,addrlen;
+    struct ip_mreq mreq;
+    char msgbuf[MSGBUFSIZE];
+    
+    u_int yes=1;            /*** MODIFICATION TO ORIGINAL */
+    
+    /* create what looks like an ordinary UDP socket */
+    if ((fd=socket(AF_INET,SOCK_DGRAM,0)) < 0) {
+        perror("socket");
+        exit(1);
+    }
+    
+    
+    /**** MODIFICATION TO ORIGINAL */
+    /* allow multiple sockets to use the same PORT number */
+    if (setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes)) < 0) {
+        perror("Reusing ADDR failed");
+        exit(1);
+    }
+    /*** END OF MODIFICATION TO ORIGINAL */
+    
+    /* set up destination address */
+    memset(&addr,0,sizeof(addr));
+    addr.sin_family=AF_INET;
+    addr.sin_addr.s_addr=htonl(INADDR_ANY); /* N.B.: differs from sender */
+    addr.sin_port=htons(HELLO_PORT);
+    
+    /* bind to receive address */
+    if (bind(fd,(struct sockaddr *) &addr,sizeof(addr)) < 0) {
+        perror("bind");
+        exit(1);
+    }
+    
+    /* use setsockopt() to request that the kernel join a multicast group */
+    mreq.imr_multiaddr.s_addr=inet_addr(HELLO_GROUP);
+    mreq.imr_interface.s_addr=htonl(INADDR_ANY);
+    if (setsockopt(fd,IPPROTO_IP,IP_ADD_MEMBERSHIP,&mreq,sizeof(mreq)) < 0) {
+        perror("setsockopt");
+        exit(1);
+    }
+    
+    /* now just enter a read-print loop */
+    while (1) {
+        addrlen=sizeof(addr);
+        if ((nbytes=recvfrom(fd,msgbuf,MSGBUFSIZE,0,
+                             (struct sockaddr *) &addr,&addrlen)) < 0) {
+            perror("recvfrom");
+            exit(1);
+        }
+        puts("Multicast:");
+        puts(msgbuf);
     }
     return 0;
 }
