@@ -12,7 +12,7 @@
 #define TCP_SENDER_PORT 8888
 #define MESSAGE_SIZE 256
 #define POOlING_TIME 7
-#define UDP_SUPPORT 0
+#define UDP_SUPPORT 1
 #define TCP_SUPPORT 1
 
 
@@ -49,8 +49,7 @@ struct sockaddr_in server;
 int main(int argc , char *argv[])
 {
     
-#if 0    
-    puts("\n");
+#if 1
     puts(argv[1]);
     puts(argv[2]);
     strcpy(mServer_ADDR, argv[1]);
@@ -70,79 +69,53 @@ int main(int argc , char *argv[])
 #if UDP_SUPPORT
 /////////////////////UDP client
     
-    int portNum, nBytes;
-    char buffer[1024];
-    socklen_t addr_size;
-    struct ip_mreq mreq;
-    u_int yes=1;
     
-    /*Create UDP socket*/
-    sock = socket(PF_INET, SOCK_DGRAM, 0);
     
-    /*Configure settings in address struct*/
-    server.sin_family = AF_INET;
-    server.sin_port = htons(mServer_UDP_port);
-    server.sin_addr.s_addr = inet_addr(mServer_ADDR);
-    memset(server.sin_zero, '\0', sizeof server.sin_zero);
-    
-    /*Initialize size variable to be used later on*/
-    addr_size = sizeof server;
-    
-    /**** MODIFICATION TO ORIGINAL */
-    /* allow multiple sockets to use the same PORT number */
-    if (setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes)) < 0) {
-        perror("Reusing ADDR failed");
-        exit(1);
-    }
-    /*** END OF MODIFICATION TO ORIGINAL */
-    
-    /* bind to receive address */
-    if (bind(sock,(struct sockaddr *) &server,sizeof(server)) < 0) {
-        perror("bind");
-        exit(1);
-    }
-    
-    /* use setsockopt() to request that the kernel join a multicast group */
-    mreq.imr_multiaddr.s_addr=inet_addr(mServer_ADDR);
-    mreq.imr_interface.s_addr=htonl(INADDR_ANY);
-    if (setsockopt(sock,IPPROTO_IP,IP_ADD_MEMBERSHIP,&mreq,sizeof(mreq)) < 0) {
-        perror("setsockopt");
-        exit(1);
-    }
-    
-    /* now just enter a read-print loop */
-    while (1) {
-        int addrlen=sizeof(server);
-        int nbytes;
-        if ((nbytes=recvfrom(sock,message,strlen(message),0,
-                             (struct sockaddr *) &server,&addrlen)) < 0) {
-            perror("recvfrom");
-            exit(1);
-        }
-        puts(message);
-    }
 #endif
     
 ////////////////////TCP client
 #if TCP_SUPPORT
-    //Create socket
-    sock = socket(AF_INET , SOCK_STREAM , 0);
-    if (sock == -1)
+    if(connect_type)
     {
-        printf("Could not create socket");
-    }
-    puts("Socket created");
-    
-    server.sin_addr.s_addr = inet_addr(mServer_ADDR);
-    server.sin_family = AF_INET;
-    server.sin_port = htons( mServer_port );
-    
-    //Connect to remote server
-    if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0)
+        int portNum, nBytes;
+        char buffer[1024];
+        socklen_t addr_size;
+        struct ip_mreq mreq;
+        u_int yes=1;
+        
+        /*Create UDP socket*/
+        sock = socket(PF_INET, SOCK_DGRAM, 0);
+        
+        /*Configure settings in address struct*/
+        server.sin_family = AF_INET;
+        server.sin_port = htons(mServer_UDP_port);
+        server.sin_addr.s_addr = inet_addr(mServer_ADDR);
+        memset(server.sin_zero, '\0', sizeof server.sin_zero);
+        
+        /*Initialize size variable to be used later on*/
+        addr_size = sizeof server;
+    }else
     {
-        perror("connect failed. Error");
-        return 1;
+        //Create socket
+        sock = socket(AF_INET , SOCK_STREAM , 0);
+        if (sock == -1)
+        {
+            printf("Could not create socket");
+        }
+        puts("Socket created");
+        
+        server.sin_addr.s_addr = inet_addr(mServer_ADDR);
+        server.sin_family = AF_INET;
+        server.sin_port = htons( mServer_port );
+        
+        //Connect to remote server
+        if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0)
+        {
+            perror("connect failed. Error");
+            return 1;
+        }
     }
+    
     
     puts("Connected\n");
     
@@ -172,8 +145,6 @@ int main(int argc , char *argv[])
     }
     puts(server_reply);
     
-    pthread_mutex_init(&mutex, NULL);
-
     if( pthread_create( &sniffer_thread , NULL ,  timer_handler , (void*) sock) < 0)
     {
         perror("could not create thread");
@@ -359,6 +330,7 @@ void *UDPMulticast_handler(void * sock)
         }
         puts("Multicast:");
         puts(msgbuf);
+        //printf("Multicast:%s",msgbuf);
     }
     return 0;
 }
