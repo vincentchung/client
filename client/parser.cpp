@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <map>
 
 using namespace std;
 
@@ -29,7 +30,7 @@ const char *timestamp_string(struct timeval ts)
 	return timestamp_string_buf;
 	}
 
-
+#if 0
 byte* lzw_decode(byte *in)
 {
 	byte *out = _new(byte, 4);
@@ -116,6 +117,7 @@ byte* lzw_decode(byte *in)
 bail:	_del(d);
 	return out;
 }
+#endif
 int main() {
   pcap_t *descr;
   char errbuf[PCAP_ERRBUF_SIZE];
@@ -195,12 +197,44 @@ char temp[8];
 sprintf(temp,"0x%x",data[i]);
 dataStr += temp;
           }
+////////////////////data is the body of msg and dataLength is the size
+//process the decompress here
+// Build the dictionary.
+  int dictSize = 256;
+  std::map<int,std::string> dictionary;
+  for (int i = 0; i < 256; i++)
+    dictionary[i] = std::string(1, i);
+
+std::string w;
+  std::string result = w;
+  std::string entry;
+
+for (int i = 0; i < dataLength; i++) {
+    int k = *data;
+    if (dictionary.count(k))
+      entry = dictionary[k];
+    else if (k == dictSize)
+      entry = w + w[0];
+    else
+      throw "Bad compressed k";
+
+    char temp[8];
+    sprintf(temp,"0x%x",entry[i]);
+    result +=temp; 
+    //result += entry;
+ 
+    // Add w+entry[0] to the dictionary.
+    dictionary[dictSize++] = w + entry[0];
+ 
+    w = entry;
+
+}
 
           // print the results
           cout << sourceIp << ":" << sourcePort << " -> " << destIp << ":" << destPort << endl;
-          //if (dataLength > 0) {
-          //    cout << dataStr << endl;
-          //}
+          if (dataLength > 0) {
+              cout << result.length()<< endl;
+          }
 }
       }
   }
