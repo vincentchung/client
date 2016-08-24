@@ -6,6 +6,14 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <map>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 using namespace std;
 
@@ -18,7 +26,74 @@ struct FTD_hdr {
 };
 typedef u_char byte;
 
+struct FTDC_hdr {
+    //header struct
+    u_char  version;		/* source port */
+    u_int	TID;		/* TransactionId */
+    u_char	chain;		/* Chain */
+    u_short SequenceSeries;
+    u_int SeqNo;/*SequenceNumber*/
+    u_short FieldCount;
+    u_short FTDCContentLength;
+    //ext msg
+};
+
+/* for decoding, dictionary contains index of whatever prefix index plus trailing
+   byte.  i.e. like previous example,
+   	dict[1022] = { c: 'c', prev: 387 },
+   	dict[387]  = { c: 'b', prev: 97 },
+   	dict[97]   = { c: 'a', prev: 0 }
+   the "back" element is used for temporarily chaining indices when resolving
+   a code to bytes
+ */
+typedef struct {
+	ushort prev, back;
+	byte c;
+} lzw_dec_t;
+
 void packetHandler(u_char *userData, const struct pcap_pkthdr* pkthdr, const u_char* packet);
+
+
+/* -------- aux stuff ---------- */
+void* mem_alloc(size_t item_size, size_t n_item)
+{
+	size_t *x = calloc(1, sizeof(size_t)*2 + n_item * item_size);
+	x[0] = item_size;
+	x[1] = n_item;
+	return x + 2;
+}
+
+void* mem_extend(void *m, size_t new_n)
+{
+	size_t *x = (size_t*)m - 2;
+	x = realloc(x, sizeof(size_t) * 2 + *x * new_n);
+	if (new_n > x[1])
+		memset((char*)(x + 2) + x[0] * x[1], 0, x[0] * (new_n - x[1]));
+	x[1] = new_n;
+	return x + 2;
+}
+
+inline void _clear(void *m)
+{
+	size_t *x = (size_t*)m - 2;
+	memset(m, 0, x[0] * x[1]);
+}
+
+#define _new(type, n)	mem_alloc(sizeof(type), n)
+#define _del(m)		{ free((size_t*)(m) - 2); m = 0; }
+#define _len(m)		*((size_t*)m - 1)
+#define _setsize(m, n)	m = mem_extend(m, n)
+#define _extend(m)	m = mem_extend(m, _len(m) * 2)
+
+
+
+/* ----------- LZW stuff -------------- */
+typedef uint8_t byte;
+typedef uint16_t ushort;
+
+#define M_CLR	256	/* clear table marker */
+#define M_EOD	257	/* end-of-data marker */
+#define M_NEW	258	/* new code index */
 
 const char *timestamp_string(struct timeval ts)
 	{
@@ -30,94 +105,6 @@ const char *timestamp_string(struct timeval ts)
 	return timestamp_string_buf;
 	}
 
-#if 0
-byte* lzw_decode(byte *in)
-{
-	byte *out = _new(byte, 4);
-	int out_len = 0;
- 
-	inline void write_out(byte c)
-	{
-		while (out_len >= _len(out)) _extend(out);
-		out[out_len++] = c;
-	}
- 
-	lzw_dec_t *d = _new(lzw_dec_t, 512);
-	int len, j, next_shift = 512, bits = 9, n_bits = 0;
-	ushort code, c, t, next_code = M_NEW;
- 
-	uint32_t tmp = 0;
-	inline void get_code() {
-		while(n_bits < bits) {
-			if (len > 0) {
-				len --;
-				tmp = (tmp << 8) | *(in++);
-				n_bits += 8;
-			} else {
-				tmp = tmp << (bits - n_bits);
-				n_bits = bits;
-			}
-		}
-		n_bits -= bits;
-		code = tmp >> n_bits;
-		tmp &= (1 << n_bits) - 1;
-	}
- 
-	inline void clear_table() {
-		_clear(d);
-		for (j = 0; j < 256; j++) d[j].c = j;
-		next_code = M_NEW;
-		next_shift = 512;
-		bits = 9;
-	};
- 
-	clear_table(); /* in case encoded bits didn't start with M_CLR */
-	for (len = _len(in); len;) {
-		get_code();
-		if (code == M_EOD) break;
-		if (code == M_CLR) {
-			clear_table();
-			continue;
-		}
- 
-		if (code >= next_code) {
-			fprintf(stderr, "Bad sequence\n");
-			_del(out);
-			goto bail;
-		}
- 
-		d[next_code].prev = c = code;
-		while (c > 255) {
-			t = d[c].prev; d[t].back = c; c = t;
-		}
- 
-		d[next_code - 1].c = c;
- 
-		while (d[c].back) {
-			write_out(d[c].c);
-			t = d[c].back; d[c].back = 0; c = t;
-		}
-		write_out(d[c].c);
- 
-		if (++next_code >= next_shift) {
-			if (++bits > 16) {
-				/* if input was correct, we'd have hit M_CLR before this */
-				fprintf(stderr, "Too many bits\n");
-				_del(out);
-				goto bail;
-			}
-			_setsize(d, next_shift *= 2);
-		}
-	}
- 
-	/* might be ok, so just whine, don't be drastic */
-	if (code != M_EOD) fputs("Bits did not end in EOD\n", stderr);
- 
-	_setsize(out, out_len);
-bail:	_del(d);
-	return out;
-}
-#endif
 int main() {
   pcap_t *descr;
   char errbuf[PCAP_ERRBUF_SIZE];
@@ -140,6 +127,101 @@ int main() {
   return 0;
 }
 
+
+byte* lzw_decode(byte *in)
+{
+	byte *out = _new(byte, 4);
+	int out_len = 0;
+
+byte write_out_c;
+	lzw_dec_t *d = _new(lzw_dec_t, 512);
+	int len, j, next_shift = 512, bits = 9, n_bits = 0;
+	ushort code, c, t, next_code = M_NEW;
+
+	uint32_t tmp = 0;
+	//clear_table(); /* in case encoded bits didn't start with M_CLR */
+	{
+		_clear(d);
+		for (j = 0; j < 256; j++) d[j].c = j;
+		next_code = M_NEW;
+		next_shift = 512;
+		bits = 9;
+	}
+
+	for (len = _len(in); len;) {
+		///
+		while(n_bits < bits) {
+			if (len > 0) {
+				len --;
+				tmp = (tmp << 8) | *(in++);
+				n_bits += 8;
+			} else {
+				tmp = tmp << (bits - n_bits);
+				n_bits = bits;
+			}
+		}
+		n_bits -= bits;
+		code = tmp >> n_bits;
+		tmp &= (1 << n_bits) - 1;
+		///
+		if (code == M_EOD) break;
+		if (code == M_CLR) {
+			//clear_table();
+			{
+				_clear(d);
+				for (j = 0; j < 256; j++) d[j].c = j;
+				next_code = M_NEW;
+				next_shift = 512;
+				bits = 9;
+			}
+			continue;
+		}
+
+		if (code >= next_code) {
+			fprintf(stderr, "Bad sequence\n");
+			_del(out);
+			goto bail;
+		}
+
+		d[next_code].prev = c = code;
+		while (c > 255) {
+			t = d[c].prev; d[t].back = c; c = t;
+		}
+
+		d[next_code - 1].c = c;
+
+		while (d[c].back) {
+			//write_out(d[c].c);
+			write_out_c=d[c].c;
+			while (out_len >= _len(out)) _extend(out);
+			out[out_len++] = write_out_c;
+
+			t = d[c].back; d[c].back = 0; c = t;
+		}
+		write_out_c=d[c].c;
+		while (out_len >= _len(out)) _extend(out);
+		out[out_len++] = write_out_c;
+
+		if (++next_code >= next_shift) {
+			if (++bits > 16) {
+				/* if input was correct, we'd have hit M_CLR before this */
+				fprintf(stderr, "Too many bits\n");
+				_del(out);
+				goto bail;
+			}
+			_setsize(d, next_shift *= 2);
+		}
+	}
+
+	/* might be ok, so just whine, don't be drastic */
+	if (code != M_EOD) fputs("Bits did not end in EOD\n", stderr);
+
+	_setsize(out, out_len);
+bail:	_del(d);
+	return out;
+}
+
+int tempfilecounter=0;
 void packetHandler(u_char *userData, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
   const struct ether_header* ethernetHeader;
   const struct ip* ipHeader;
@@ -200,40 +282,22 @@ dataStr += temp;
 ////////////////////data is the body of msg and dataLength is the size
 //process the decompress here
 // Build the dictionary.
-  int dictSize = 256;
-  std::map<int,std::string> dictionary;
-  for (int i = 0; i < 256; i++)
-    dictionary[i] = std::string(1, i);
-
-std::string w;
-  std::string result = w;
-  std::string entry;
-
-for (int i = 0; i < dataLength; i++) {
-    int k = *data;
-    if (dictionary.count(k))
-      entry = dictionary[k];
-    else if (k == dictSize)
-      entry = w + w[0];
-    else
-      throw "Bad compressed k";
-
-    char temp[8];
-    sprintf(temp,"0x%x",entry[i]);
-    result +=temp; 
-    //result += entry;
- 
-    // Add w+entry[0] to the dictionary.
-    dictionary[dictSize++] = w + entry[0];
- 
-    w = entry;
-
-}
-
+//binary buffer???
+//byte *dec = lzw_decode(data);
+//cout <<"decode:"<< _len(dec)<< endl;
+//write buffer to temp file
+char filename[32];
+sprintf(filename,"vincentftd_%d.temp",tempfilecounter);
+FILE *outfile = fopen(filename, "wb");
+fwrite(data+4, sizeof (char), dataLength-4, outfile); 
+fclose(outfile);
+cout<<filename<<endl;
+tempfilecounter++;
+struct FTDC_hdr *ftdc = (struct FTDC_hdr*) data;
           // print the results
           cout << sourceIp << ":" << sourcePort << " -> " << destIp << ":" << destPort << endl;
           if (dataLength > 0) {
-              cout << result.length()<< endl;
+              cout << dataStr<< endl;
           }
 }
       }
