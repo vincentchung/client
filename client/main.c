@@ -245,9 +245,11 @@ void *timer_handler(void * sock)
             }
             //if not anyother reason for sending out message.
             //recieving message every sec
-            if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
+            if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
             {
-                //timeout
+                //receive something from server!!
+                //
+                puts(server_reply);
             }
         }
         
