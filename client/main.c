@@ -207,7 +207,10 @@ void *timer_handler(void * sock)
     double seconds;
     time(&timeA);  /* get current time; same as: now = time(NULL)  */
     int sending_ACK=0;
+    time_t timeUDPA;
+    time_t timeUDPB;
     
+    time(&timeUDPA);
     
     while(1)
     {
@@ -246,11 +249,13 @@ void *timer_handler(void * sock)
             {
               //no ACK back timeout
               //counting the retry time
-              puts("recv failed");
+              puts("server no ack feedback");
               ACK_counter++;
               if(ACK_counter==5)
-                 break;
-                
+              {
+                  puts("server no ack feedback 5 times!!");
+                  break;
+              }
             }else
             {
 #if ACK_LOG
@@ -272,8 +277,7 @@ void *timer_handler(void * sock)
                 memset(server_reply, 0, MESSAGE_SIZE);
                 if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
                 {
-                    puts("recv failed");
-                    break;
+                    puts("sending message error");
                 }
                 sending_flag=0;
 #if ACK_LOG
@@ -287,16 +291,27 @@ void *timer_handler(void * sock)
             if(connect_type)
             {
                 //UDP case using pulling request!!
-                //sprintf(input_msg, "P\t");
-                memset(server_reply, 0, MESSAGE_SIZE);
-                net_sendmsg("P\n");
-                if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
+                
+                time(&timeUDPB);
+                int UDPseconds = difftime(timeUDPB,timeUDPA);
+                
+                if(UDPseconds>=2)
                 {
-                    //receive something from server!!
-                    //
-                    if(strcmp(server_reply,"NONE"))
-                    puts(server_reply);
+                    time(&timeUDPA);
+                    memset(server_reply, 0, MESSAGE_SIZE);
+                    net_sendmsg("P");
+                    if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
+                    {
+                        //receive something from server!!
+                        //
+                        if(strcmp(server_reply,"NONE"))
+                        {
+                            puts("unicast:");
+                            puts(server_reply);
+                        }
+                    }
                 }
+                
             }else
             {
                 if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
