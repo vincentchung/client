@@ -14,7 +14,7 @@
 #define POOlING_TIME 7
 #define UDP_SUPPORT 1
 #define TCP_SUPPORT 1
-
+#define UID_LENGTH 16
 
 //the thread function
 void *timer_handler(void *);
@@ -32,7 +32,7 @@ pthread_t sniffer_listener_thread;
 char message[MESSAGE_SIZE] , server_reply[MESSAGE_SIZE];
 char input_msg[MESSAGE_SIZE];
 int sending_flag=0;
-char UID[64];
+char UID[UID_LENGTH];
 char UPWD[64];
 char mServer_ADDR[16]="127.0.0.1";
 int mServer_port=TCP_SENDER_PORT;
@@ -118,6 +118,9 @@ int main(int argc , char *argv[])
     
     
     puts("Connected\n");
+    
+    sprintf(message, "Connect sync TCP");
+    net_sendmsg(message);
     
     struct timeval timeout;
     timeout.tv_sec = 1;//timeout for 1 sec
@@ -261,7 +264,9 @@ int net_sendmsg(char* msg)
 {
     if(connect_type)//UDP
     {
-        sendto(sock,msg,strlen(msg),0,(struct sockaddr *)&server,sizeof(server));
+        char temp[MESSAGE_SIZE+UID_LENGTH+1];
+        sprintf(temp, "%s,%s",UID,msg);
+        sendto(sock,temp,strlen(temp),0,(struct sockaddr *)&server,sizeof(server));
     }else//TCP
     {
         if( send(sock , msg , strlen(msg) , 0) < 0)
