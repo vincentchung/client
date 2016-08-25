@@ -16,6 +16,7 @@
 #define TCP_SUPPORT 1
 #define UID_LENGTH 16
 
+#define ACK_LOG 0
 //the thread function
 void *timer_handler(void *);
 int net_sendmsg(char* msg);
@@ -119,7 +120,7 @@ int main(int argc , char *argv[])
     
     puts("Connected\n");
     
-    sprintf(message, "Connect sync TCP");
+    sprintf(message, "Connect");
     net_sendmsg(message);
     
     struct timeval timeout;
@@ -136,6 +137,7 @@ int main(int argc , char *argv[])
     puts(server_reply);
     //sending login information
     
+    memset(message,0,MESSAGE_SIZE);
     sprintf(message, "L%s,%s",UID,UPWD);
     
     net_sendmsg(message);
@@ -157,9 +159,37 @@ int main(int argc , char *argv[])
     //keep communicating with server
     while(1)
     {
+        char UImsg[MESSAGE_SIZE]={0};
         //printf("waiting for next 7secs\n");
-        scanf("%s" , input_msg);
-        sending_flag=1;
+        puts("1:unicast message");
+        puts("2:Multicast message");
+        scanf("%s" , UImsg);
+        memset(input_msg,0,MESSAGE_SIZE);
+        if(!strcmp(UImsg,"1"))
+        {
+            strcat(input_msg,"U");
+            puts("please enter the ID you want to send");
+            scanf("%s" , UImsg);
+            strcat(input_msg,UImsg);
+            strcat(input_msg,",");
+            puts("please type the message:");
+            scanf("%s" , UImsg);
+            strcat(input_msg,UImsg);
+            sending_flag=1;
+        }else if(!strcmp(UImsg,"2"))
+        {
+            strcat(input_msg,"M");
+            puts("please type the message:");
+            scanf("%s" , UImsg);
+            strcat(input_msg,UImsg);
+            sending_flag=1;
+        }else{
+            continue;
+        }
+        puts("sending message");
+        while(sending_flag)
+            sleep(1);
+        
     }
     
     close(sock);
@@ -187,7 +217,9 @@ void *timer_handler(void * sock)
             seconds = difftime(timeB,timeA);
             if(seconds>=POOlING_TIME)
             {
+#if ACK_LOG
                 puts("sending time every 7secs\n");
+#endif
                 sending_ACK=1;
             }
         }
@@ -203,7 +235,9 @@ void *timer_handler(void * sock)
             strftime (message,MESSAGE_SIZE,"A%x %X",timeinfo);
             
             net_sendmsg(message);
-            puts("waiting..\n");
+#if ACK_LOG
+            puts("waiting..");
+#endif
             int rec=recv(sock , server_reply , MESSAGE_SIZE , 0);
             if(rec < 0)
                 rec=recv(sock , server_reply , MESSAGE_SIZE , 0);
@@ -219,8 +253,10 @@ void *timer_handler(void * sock)
                 
             }else
             {
+#if ACK_LOG
                 puts("Server reply :");
                 puts(server_reply);
+#endif
                 memset(server_reply, 0, MESSAGE_SIZE);
                 time(&timeA);
                 ACK_counter=0;
@@ -231,28 +267,44 @@ void *timer_handler(void * sock)
             if(sending_flag)
             {
                 //for sending user input message
-                sending_flag=0;
-                
                 net_sendmsg(input_msg);
-                
                 //Receive a reply from the server
+                memset(server_reply, 0, MESSAGE_SIZE);
                 if( recv(sock , server_reply , MESSAGE_SIZE , 0) < 0)
                 {
                     puts("recv failed");
                     break;
                 }
-                
+                sending_flag=0;
+#if ACK_LOG
                 puts("Server reply :");
                 puts(server_reply);
+#endif
                 memset(server_reply, 0, MESSAGE_SIZE);
             }
             //if not anyother reason for sending out message.
             //recieving message every sec
-            if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
+            if(connect_type)
             {
-                //receive something from server!!
-                //
-                puts(server_reply);
+                //UDP case using pulling request!!
+                //sprintf(input_msg, "P\t");
+                memset(server_reply, 0, MESSAGE_SIZE);
+                net_sendmsg("P\n");
+                if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
+                {
+                    //receive something from server!!
+                    //
+                    if(strcmp(server_reply,"NONE"))
+                    puts(server_reply);
+                }
+            }else
+            {
+                if( recv(sock , server_reply , MESSAGE_SIZE , 0) > 0)
+                {
+                    //receive something from server!!
+                    //
+                    puts(server_reply);
+                }
             }
         }
         
@@ -264,7 +316,7 @@ int net_sendmsg(char* msg)
 {
     if(connect_type)//UDP
     {
-        char temp[MESSAGE_SIZE+UID_LENGTH+1];
+        char temp[MESSAGE_SIZE+UID_LENGTH+1]={0};
         sprintf(temp, "%s,%s",UID,msg);
         sendto(sock,temp,strlen(temp),0,(struct sockaddr *)&server,sizeof(server));
     }else//TCP
