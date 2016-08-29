@@ -167,14 +167,15 @@ int main(int argc , char *argv[])
         return 1;
     }
     
+    char UImsg[MESSAGE_SIZE]={0};
     //keep communicating with server
     while(1)
     {
-        char UImsg[MESSAGE_SIZE]={0};
+        memset(UImsg,0,MESSAGE_SIZE);
         //printf("waiting for next 7secs\n");
         puts("1:unicast message");
         puts("2:Multicast message");
-        scanf("%[^\n]",UImsg);//fix the space issue
+        scanf("%s",UImsg);//fix the space issue
         memset(input_msg,0,MESSAGE_SIZE);
         if(!strcmp(UImsg,"1"))
         {
