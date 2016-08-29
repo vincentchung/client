@@ -163,7 +163,7 @@ int main(int argc , char *argv[])
         //printf("waiting for next 7secs\n");
         puts("1:unicast message");
         puts("2:Multicast message");
-        scanf("%s" , UImsg);
+        scanf("%[^\n]",UImsg);//fix the space issue
         memset(input_msg,0,MESSAGE_SIZE);
         if(!strcmp(UImsg,"1"))
         {
@@ -174,14 +174,19 @@ int main(int argc , char *argv[])
             strcat(input_msg,",");
             puts("please type the message:");
             scanf("%s" , UImsg);
-            strcat(input_msg,UImsg);
+            //strcat(input_msg,UImsg);
+            sprintf(input_msg, "%s%s",input_msg,UImsg);
+            puts(input_msg);
             sending_flag=1;
         }else if(!strcmp(UImsg,"2"))
         {
             strcat(input_msg,"M");
             puts("please type the message:");
             scanf("%s" , UImsg);
-            strcat(input_msg,UImsg);
+            puts(UImsg);
+            //strcat(input_msg,UImsg);
+            sprintf(input_msg, "%s%s",input_msg,UImsg);
+            puts(input_msg);
             sending_flag=1;
         }else{
             continue;
