@@ -188,17 +188,17 @@ int main(int argc , char *argv[])
             scanf("%s" , UImsg);
             //strcat(input_msg,UImsg);
             sprintf(input_msg, "%s%s",input_msg,UImsg);
-            puts(input_msg);
+            //puts(input_msg);
             sending_flag=1;
         }else if(!strcmp(UImsg,"2"))
         {
             strcat(input_msg,"M");
             puts("please type the message:");
             scanf("%s" , UImsg);
-            puts(UImsg);
+            //puts(UImsg);
             //strcat(input_msg,UImsg);
             sprintf(input_msg, "%s%s",input_msg,UImsg);
-            puts(input_msg);
+            //puts(input_msg);
             sending_flag=1;
         }else{
             continue;
