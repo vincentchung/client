@@ -46,7 +46,7 @@ struct sockaddr_in server;
 //create one thread for UDP muticast case lisener!!!
 //using one command to be muticast message to other client
 
-//client [IP][port][UID][PWD]
+//client [IP][port][UID][PWD][0:TCP,1:UDP]
 int main(int argc , char *argv[])
 {
     
@@ -58,6 +58,17 @@ int main(int argc , char *argv[])
     strcpy(UID, argv[3]);
     strcpy(UPWD, argv[4]);
     connect_type=atoi(argv[5]);
+#else
+    printf("choose TCP or UDP connecting (0:TCP,1:UDP)");
+    scanf("%d",&connect_type);
+    printf("enter connecting IP:(default:%s)",mServer_ADDR);
+    scanf("%s",mServer_ADDR);
+    printf("enter connecting port:(default:%d)",mServer_port);
+    scanf("%d",&mServer_port);
+    printf("choose user ID:");
+    scanf("%s",UID);
+    printf("choose user password:");
+    scanf("%s",UPWD);
 #endif
     
 /////create thread for listening multicast message
